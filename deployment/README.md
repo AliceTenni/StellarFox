@@ -163,6 +163,14 @@ docker compose logs backend-green
 
 ## Integration Points
 
+### Kubernetes service mesh
+
+The Kubernetes backend manifest supports Linkerd proxy injection. See the
+[Linkerd setup and observability guide](../k8s/linkerd/README.md) for installing
+the control plane, applying the backend route policy, and inspecting mesh
+metrics. The Linkerd integration is Kubernetes-only; Docker Compose deployments
+are unaffected.
+
 ### CI/CD Pipeline
 ```yaml
 deploy:
