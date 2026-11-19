@@ -379,6 +379,70 @@ pub fn emit_withdrawal_audit_log(env: &Env, entry: crate::types::AuditEntry) {
     env.events().publish(topics, entry);
 }
 
+/// Emits a `factory_paused` event when the factory admin pauses market creation.
+///
+/// Topics: `(Symbol("factory_paused"),)`
+/// Data:   `admin: Address`
+pub fn emit_factory_paused(env: &Env, admin: Address) {
+    let topics = (Symbol::new(env, "factory_paused"),);
+    env.events().publish(topics, admin);
+}
+
+/// Emits a `factory_unpaused` event when the factory admin unpauses market creation.
+///
+/// Topics: `(Symbol("factory_unpaused"),)`
+/// Data:   `admin: Address`
+pub fn emit_factory_unpaused(env: &Env, admin: Address) {
+    let topics = (Symbol::new(env, "factory_unpaused"),);
+    env.events().publish(topics, admin);
+}
+
+/// Emits a `default_config_updated` event when the factory default configuration changes.
+///
+/// Topics: `(Symbol("default_config_updated"),)`
+/// Data:   `(min_bet, max_bet, fee_bps, lock_before_secs, resolution_window)`
+pub fn emit_default_config_updated(
+    env: &Env,
+    min_bet: i128,
+    max_bet: i128,
+    fee_bps: u32,
+    lock_before_secs: u64,
+    resolution_window: u64,
+) {
+    let topics = (Symbol::new(env, "default_config_updated"),);
+    env.events().publish(
+        topics,
+        (min_bet, max_bet, fee_bps, lock_before_secs, resolution_window),
+    );
+}
+
+/// Emits an `oracle_added` event when a new oracle is whitelisted.
+///
+/// Topics: `(Symbol("oracle_added"),)`
+/// Data:   `(admin, oracle_address)`
+pub fn emit_oracle_added(env: &Env, admin: Address, oracle_address: Address) {
+    let topics = (Symbol::new(env, "oracle_added"),);
+    env.events().publish(topics, (admin, oracle_address));
+}
+
+/// Emits an `oracle_removed` event when an oracle is removed from the whitelist.
+///
+/// Topics: `(Symbol("oracle_removed"),)`
+/// Data:   `(admin, oracle_address)`
+pub fn emit_oracle_removed(env: &Env, admin: Address, oracle_address: Address) {
+    let topics = (Symbol::new(env, "oracle_removed"),);
+    env.events().publish(topics, (admin, oracle_address));
+}
+
+/// Emits a `market_wasm_updated` event when the factory updates the market WASM hash.
+///
+/// Topics: `(Symbol("market_wasm_updated"),)`
+/// Data:   `(admin, new_wasm_hash: BytesN<32>)`
+pub fn emit_market_wasm_updated(env: &Env, admin: Address, new_wasm_hash: soroban_sdk::BytesN<32>) {
+    let topics = (Symbol::new(env, "market_wasm_updated"),);
+    env.events().publish(topics, (admin, new_wasm_hash));
+}
+
 /// Emits a `liquidity_added` event when an LP provides liquidity to a market pool.
 ///
 /// Topics: `(Symbol("liquidity_added"), market_id)`
@@ -830,5 +894,117 @@ mod tests {
         assert_eq!(topic_id, 10_u64);
         let ev_oracle: Address = TryFromVal::try_from_val(&env, &ev.2).unwrap();
         assert_eq!(ev_oracle, oracle);
+    }
+
+    // ── factory_paused ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_emit_factory_paused() {
+        let (env, id) = env();
+        let admin = addr(&env);
+        env.as_contract(&id, || {
+            emit_factory_paused(&env, admin.clone());
+        });
+
+        let ev = sole_event!(env);
+        assert_eq!(topic_sym!(env, ev), Symbol::new(&env, "factory_paused"));
+        let ev_admin: Address = TryFromVal::try_from_val(&env, &ev.2).unwrap();
+        assert_eq!(ev_admin, admin);
+    }
+
+    // ── factory_unpaused ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_emit_factory_unpaused() {
+        let (env, id) = env();
+        let admin = addr(&env);
+        env.as_contract(&id, || {
+            emit_factory_unpaused(&env, admin.clone());
+        });
+
+        let ev = sole_event!(env);
+        assert_eq!(topic_sym!(env, ev), Symbol::new(&env, "factory_unpaused"));
+        let ev_admin: Address = TryFromVal::try_from_val(&env, &ev.2).unwrap();
+        assert_eq!(ev_admin, admin);
+    }
+
+    // ── default_config_updated ───────────────────────────────────────────────
+
+    #[test]
+    fn test_emit_default_config_updated() {
+        let (env, id) = env();
+        env.as_contract(&id, || {
+            emit_default_config_updated(&env, 1_000_000, 100_000_000, 200, 3600, 86400);
+        });
+
+        let ev = sole_event!(env);
+        assert_eq!(
+            topic_sym!(env, ev),
+            Symbol::new(&env, "default_config_updated")
+        );
+        let (min_bet, max_bet, fee_bps, lock_before, resolution_window): (i128, i128, u32, u64, u64) =
+            TryFromVal::try_from_val(&env, &ev.2).unwrap();
+        assert_eq!(min_bet, 1_000_000_i128);
+        assert_eq!(max_bet, 100_000_000_i128);
+        assert_eq!(fee_bps, 200_u32);
+        assert_eq!(lock_before, 3600_u64);
+        assert_eq!(resolution_window, 86400_u64);
+    }
+
+    // ── oracle_added ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_emit_oracle_added() {
+        let (env, id) = env();
+        let admin = addr(&env);
+        let oracle = addr(&env);
+        env.as_contract(&id, || {
+            emit_oracle_added(&env, admin.clone(), oracle.clone());
+        });
+
+        let ev = sole_event!(env);
+        assert_eq!(topic_sym!(env, ev), Symbol::new(&env, "oracle_added"));
+        let (ev_admin, ev_oracle): (Address, Address) =
+            TryFromVal::try_from_val(&env, &ev.2).unwrap();
+        assert_eq!(ev_admin, admin);
+        assert_eq!(ev_oracle, oracle);
+    }
+
+    // ── oracle_removed ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_emit_oracle_removed() {
+        let (env, id) = env();
+        let admin = addr(&env);
+        let oracle = addr(&env);
+        env.as_contract(&id, || {
+            emit_oracle_removed(&env, admin.clone(), oracle.clone());
+        });
+
+        let ev = sole_event!(env);
+        assert_eq!(topic_sym!(env, ev), Symbol::new(&env, "oracle_removed"));
+        let (ev_admin, ev_oracle): (Address, Address) =
+            TryFromVal::try_from_val(&env, &ev.2).unwrap();
+        assert_eq!(ev_admin, admin);
+        assert_eq!(ev_oracle, oracle);
+    }
+
+    // ── market_wasm_updated ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_emit_market_wasm_updated() {
+        let (env, id) = env();
+        let admin = addr(&env);
+        let wasm_hash = soroban_sdk::BytesN::from_array(&env, &[42u8; 32]);
+        env.as_contract(&id, || {
+            emit_market_wasm_updated(&env, admin.clone(), wasm_hash);
+        });
+
+        let ev = sole_event!(env);
+        assert_eq!(topic_sym!(env, ev), Symbol::new(&env, "market_wasm_updated"));
+        let (ev_admin, ev_hash): (Address, soroban_sdk::BytesN<32>) =
+            TryFromVal::try_from_val(&env, &ev.2).unwrap();
+        assert_eq!(ev_admin, admin);
+        assert_eq!(ev_hash, wasm_hash);
     }
 }
