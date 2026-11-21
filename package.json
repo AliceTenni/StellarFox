@@ -3,7 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "test:e2e": "npm --prefix backend run test:e2e",
-    "test:integration": "npm --prefix backend run test:integration"
+    "test": "npm run test:unit",
+    "test:unit": "npm --prefix backend run test:unit && npm --prefix frontend run test:unit && npm --prefix indexer run test:unit && cargo test --manifest-path contracts/Cargo.toml --workspace --all-features",
+    "test:integration": "npm --prefix backend run test:integration",
+    "test:e2e": "npm --prefix backend run test:e2e && npm --prefix frontend run test:e2e",
+    "test:coverage": "npm --prefix backend run test:coverage && npm --prefix frontend run test:coverage && npm --prefix indexer run test:coverage",
+    "test:all": "npm run test:unit && npm run test:integration && npm run test:e2e"
   }
 }

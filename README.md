@@ -45,6 +45,23 @@ docker compose up
 # - Frontend:    localhost:3000
 ```
 
+## Test Automation
+
+Run commands from the repository root. Install the Node dependencies in the
+relevant project first (`npm ci --prefix backend`, `frontend`, and/or `indexer`).
+
+| Command | What it runs |
+|---|---|
+| `npm test` or `npm run test:unit` | Backend and frontend Jest suites, indexer tests, and Rust contract tests |
+| `npm run test:integration` | Backend integration tests (requires PostgreSQL and Redis) |
+| `npm run test:e2e` | Backend E2E tests (requires PostgreSQL and Redis) and frontend Playwright tests |
+| `npm run test:coverage` | Backend, frontend, and indexer coverage reports with 70% global thresholds |
+| `npm run test:all` | All unit, integration, and E2E suites |
+
+Frontend Playwright tests require a built frontend server on port 3000; the
+frontend CI job builds and starts it automatically. Contract tests use Cargo
+and are run by the contract CI workflow.
+
 ### Development Mode (Local)
 
 If you prefer to run services locally without Docker:
