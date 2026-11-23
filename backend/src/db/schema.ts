@@ -582,6 +582,209 @@ export const user_notifications = pgTable(
   }),
 );
 
+// ============================================================================
+// Security Features: MFA, Secrets, ABAC, Scanning
+// ============================================================================
+
+// MFA Credentials table
+export const mfaCredentials = pgTable(
+  'mfa_credentials',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(), // 'totp' | 'sms' | 'email' | 'biometric'
+    credential: text('credential').notNull(), // encrypted secret
+    backupCodes: text('backup_codes'), // encrypted JSON array
+    isEnabled: boolean('is_enabled').default(false),
+    isVerified: boolean('is_verified').default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    metadata: jsonb('metadata'),
+  },
+  (table) => ({
+    userId_idx: index('mfa_credentials_user_id_idx').on(table.userId),
+    type_idx: index('mfa_credentials_type_idx').on(table.type),
+  }),
+);
+
+// MFA Audit Log table
+export const mfaAuditLog = pgTable(
+  'mfa_audit_log',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    action: text('action').notNull(), // 'mfa_registered', 'mfa_enabled', 'mfa_disabled', etc.
+    mfaType: text('mfa_type'),
+    success: boolean('success').default(true),
+    timestamp: timestamp('timestamp', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    userId_idx: index('mfa_audit_log_user_id_idx').on(table.userId),
+    action_idx: index('mfa_audit_log_action_idx').on(table.action),
+    timestamp_idx: index('mfa_audit_log_timestamp_idx').on(table.timestamp),
+  }),
+);
+
+// Encrypted Secrets table
+export const encryptedSecrets = pgTable(
+  'encrypted_secrets',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull().unique(),
+    type: text('type').notNull(), // 'api_key' | 'database_url' | 'token' | 'custom'
+    encryptedValue: text('encrypted_value').notNull(),
+    iv: text('iv').notNull(), // initialization vector
+    authTag: text('auth_tag').notNull(), // authentication tag for GCM
+    isRotated: boolean('is_rotated').default(false),
+    rotationInterval: integer('rotation_interval'), // days
+    nextRotationAt: timestamp('next_rotation_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    createdBy: text('created_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    deletedBy: text('deleted_by'),
+  },
+  (table) => ({
+    name_idx: uniqueIndex('encrypted_secrets_name_idx').on(table.name),
+    type_idx: index('encrypted_secrets_type_idx').on(table.type),
+    nextRotationAt_idx: index('encrypted_secrets_next_rotation_idx').on(table.nextRotationAt),
+  }),
+);
+
+// Secret Rotation Log table
+export const secretRotationLog = pgTable(
+  'secret_rotation_log',
+  {
+    id: text('id').primaryKey(),
+    secretId: text('secret_id').notNull().references(() => encryptedSecrets.id, { onDelete: 'cascade' }),
+    oldEncryptedValue: text('old_encrypted_value').notNull(),
+    newEncryptedValue: text('new_encrypted_value').notNull(),
+    oldIv: text('old_iv').notNull(),
+    newIv: text('new_iv').notNull(),
+    oldAuthTag: text('old_auth_tag').notNull(),
+    newAuthTag: text('new_auth_tag').notNull(),
+    rotatedAt: timestamp('rotated_at', { withTimezone: true }).defaultNow(),
+    rotatedBy: text('rotated_by').notNull(),
+    reason: text('reason').default('scheduled'),
+    status: text('status').notNull(), // 'pending' | 'completed' | 'failed'
+  },
+  (table) => ({
+    secretId_idx: index('secret_rotation_log_secret_id_idx').on(table.secretId),
+    rotatedAt_idx: index('secret_rotation_log_rotated_at_idx').on(table.rotatedAt),
+  }),
+);
+
+// Secret Audit Log table
+export const secretAuditLog = pgTable(
+  'secret_audit_log',
+  {
+    id: text('id').primaryKey(),
+    secretId: text('secret_id').notNull(),
+    action: text('action').notNull(), // 'secret_created', 'secret_accessed', 'secret_rotated', etc.
+    userId: text('user_id').notNull(),
+    success: boolean('success').default(true),
+    details: text('details'),
+    timestamp: timestamp('timestamp', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    secretId_idx: index('secret_audit_log_secret_id_idx').on(table.secretId),
+    userId_idx: index('secret_audit_log_user_id_idx').on(table.userId),
+    action_idx: index('secret_audit_log_action_idx').on(table.action),
+    timestamp_idx: index('secret_audit_log_timestamp_idx').on(table.timestamp),
+  }),
+);
+
+// ABAC Policies table
+export const abacPolicies = pgTable(
+  'abac_policies',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    description: text('description'),
+    effect: text('effect').notNull(), // 'allow' | 'deny'
+    subjectPolicy: text('subject_policy').notNull(), // JSON-serialized condition
+    actionPolicy: text('action_policy').notNull(), // JSON-serialized condition
+    resourcePolicy: text('resource_policy').notNull(), // JSON-serialized condition
+    conditionPolicy: text('condition_policy'), // JSON-serialized condition (optional)
+    priority: integer('priority').default(0),
+    createdBy: text('created_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+    isEnabled: boolean('is_enabled').default(true),
+  },
+  (table) => ({
+    name_idx: index('abac_policies_name_idx').on(table.name),
+    effect_idx: index('abac_policies_effect_idx').on(table.effect),
+    priority_idx: index('abac_policies_priority_idx').on(table.priority),
+  }),
+);
+
+// ABAC Audit Log table
+export const abacAuditLog = pgTable(
+  'abac_audit_log',
+  {
+    id: text('id').primaryKey(),
+    action: text('action').notNull(), // 'access_granted', 'access_denied', 'policy_created', etc.
+    resourceId: text('resource_id').notNull(),
+    userId: text('user_id').notNull(),
+    success: boolean('success').default(true),
+    timestamp: timestamp('timestamp', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    resourceId_idx: index('abac_audit_log_resource_id_idx').on(table.resourceId),
+    userId_idx: index('abac_audit_log_user_id_idx').on(table.userId),
+    action_idx: index('abac_audit_log_action_idx').on(table.action),
+    timestamp_idx: index('abac_audit_log_timestamp_idx').on(table.timestamp),
+  }),
+);
+
+// Security Scan Results table
+export const securityScanResults = pgTable(
+  'security_scan_results',
+  {
+    id: text('id').primaryKey(),
+    type: text('type').notNull(), // 'sast' | 'dast' | 'dependency' | 'container'
+    status: text('status').notNull(), // 'pending' | 'running' | 'completed' | 'failed'
+    startedAt: timestamp('started_at', { withTimezone: true }).defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    resultsPath: text('results_path'),
+    totalIssues: integer('total_issues').default(0),
+    criticalIssues: integer('critical_issues').default(0),
+    highIssues: integer('high_issues').default(0),
+    mediumIssues: integer('medium_issues').default(0),
+    lowIssues: integer('low_issues').default(0),
+    logs: text('logs'),
+  },
+  (table) => ({
+    type_idx: index('security_scan_results_type_idx').on(table.type),
+    status_idx: index('security_scan_results_status_idx').on(table.status),
+    startedAt_idx: index('security_scan_results_started_at_idx').on(table.startedAt),
+  }),
+);
+
+// Security Vulnerabilities table
+export const securityVulnerabilities = pgTable(
+  'security_vulnerabilities',
+  {
+    id: text('id').primaryKey(),
+    scanId: text('scan_id').notNull().references(() => securityScanResults.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(), // 'CVE', 'secret_leak', 'code_injection', etc.
+    severity: text('severity').notNull(), // 'critical' | 'high' | 'medium' | 'low' | 'info'
+    title: text('title').notNull(),
+    description: text('description'),
+    affectedComponent: text('affected_component').notNull(),
+    affectedVersion: text('affected_version'),
+    remediationAdvice: text('remediation_advice'),
+    cvssScore: numeric('cvss_score', { precision: 4, scale: 1 }),
+    cweId: text('cwe_id'),
+    detectedAt: timestamp('detected_at', { withTimezone: true }).defaultNow(),
+    status: text('status').notNull(), // 'open' | 'acknowledged' | 'remediated' | 'false_positive'
+  },
+  (table) => ({
+    scanId_idx: index('security_vulnerabilities_scan_id_idx').on(table.scanId),
+    severity_idx: index('security_vulnerabilities_severity_idx').on(table.severity),
+    status_idx: index('security_vulnerabilities_status_idx').on(table.status),
 // Analytics tables
 export const analyticsUserSessions = pgTable(
   'user_sessions',
@@ -788,6 +991,11 @@ export type NotificationJob = typeof notification_jobs.$inferSelect;
 export type Dispute = typeof disputes.$inferSelect;
 export type NewDispute = typeof disputes.$inferInsert;
 export type User = typeof users.$inferSelect;
+export type MFACredential = typeof mfaCredentials.$inferSelect;
+export type EncryptedSecret = typeof encryptedSecrets.$inferSelect;
+export type ABACPolicy = typeof abacPolicies.$inferSelect;
+export type SecurityScanResult = typeof securityScanResults.$inferSelect;
+export type SecurityVulnerability = typeof securityVulnerabilities.$inferSelect;
 export type AnalyticsUserSession = typeof analyticsUserSessions.$inferSelect;
 export type NewAnalyticsUserSession = typeof analyticsUserSessions.$inferInsert;
 export type AnalyticsUserEvent = typeof analyticsUserEvents.$inferSelect;
