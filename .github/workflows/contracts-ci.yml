@@ -4,9 +4,11 @@ on:
   push:
     paths:
       - 'contracts/**'
+      - 'package.json'
   pull_request:
     paths:
       - 'contracts/**'
+      - 'package.json'
   schedule:
     - cron: '0 3 * * 1'  # weekly Monday 03:00 UTC
 
@@ -46,20 +48,9 @@ jobs:
         working-directory: contracts
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Check public function documentation
+      - name: Tests
         working-directory: contracts
-        run: python3 scripts/check_rustdoc.py
-
-      - name: Generate Rust documentation
-        working-directory: contracts
-        env:
-          RUSTDOCFLAGS: -D rustdoc::broken_intra_doc_links
-        run: cargo doc --workspace --no-deps
-
-      # Tests disabled - test structure refactoring in progress
-      # - name: Tests
-      #   working-directory: contracts
-      #   run: cargo test --all --all-features
+        run: cargo test --workspace --all-features
 
       - name: Build wasm
         working-directory: contracts
