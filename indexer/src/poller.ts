@@ -35,6 +35,18 @@ if (!CONTRACT_ID) {
 
 const server = new rpc.Server(RPC_URL);
 
+// ── Enhanced polling configuration ──────────────────────────────────────
+const ADAPTIVE_POLLING_CONFIG = {
+  minIntervalMs: parseInt(process.env.POLLING_MIN_INTERVAL_MS || '1000', 10),
+  maxIntervalMs: parseInt(process.env.POLLING_MAX_INTERVAL_MS || '60000', 10),
+  initialIntervalMs: parseInt(process.env.POLLING_INITIAL_INTERVAL_MS || '5000', 10),
+  // Increase interval when errors occur
+  errorMultiplier: parseFloat(process.env.POLLING_ERROR_MULTIPLIER || '1.5'),
+  // Decrease interval when events are found (high activity)
+  successDivisor: parseFloat(process.env.POLLING_SUCCESS_DIVISOR || '1.2'),
+  jitterPercent: parseInt(process.env.POLLING_JITTER_PERCENT || '20', 10),
+};
+
 // ── Polling state for health monitoring ────────────────────────────────────
 interface PollerHealth {
   isRunning: boolean;
@@ -47,6 +59,10 @@ interface PollerHealth {
   lastReorgAt: string | null;
   ledgerGapsDetected: number;
   lastLedgerGapAt: string | null;
+  currentPollingIntervalMs: number;
+  averageEventsPerPoll: number;
+  lastPollingAdaptationAt: string | null;
+  errorRecoveryAttemptsCount: number;
 }
 
 let pollerHealth: PollerHealth = {
@@ -60,6 +76,10 @@ let pollerHealth: PollerHealth = {
   lastReorgAt: null,
   ledgerGapsDetected: 0,
   lastLedgerGapAt: null,
+  currentPollingIntervalMs: ADAPTIVE_POLLING_CONFIG.initialIntervalMs,
+  averageEventsPerPoll: 0,
+  lastPollingAdaptationAt: null,
+  errorRecoveryAttemptsCount: 0,
 };
 
 export function getPollerHealth(): PollerHealth {
