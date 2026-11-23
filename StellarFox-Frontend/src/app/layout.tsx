@@ -4,6 +4,7 @@ import { Header } from '../components/layout/Header';
 import { SkipLink } from '../components/layout/SkipLink';
 import { QueryProvider } from '../providers/QueryProvider';
 import { ToastProvider } from '../components/ui/ToastProvider';
+import { AnalyticsProvider } from '../providers/AnalyticsProvider';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -32,15 +33,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }):
         />
       </head>
       <body className="bg-white dark:bg-gray-950 text-gray-900 dark:text-white min-h-screen transition-colors">
-        <QueryProvider>
-          <ToastProvider>
-            <SkipLink />
-            <Header />
-            <main id="main-content" className="focus:outline-none">
-              {children}
-            </main>
-          </ToastProvider>
-        </QueryProvider>
+        <AnalyticsProvider>
+          <QueryProvider>
+            <ToastProvider>
+              <SkipLink />
+              <Header />
+              <main id="main-content" className="focus:outline-none">
+                {children}
+              </main>
+            </ToastProvider>
+          </QueryProvider>
+        </AnalyticsProvider>
       </body>
     </html>
   );
