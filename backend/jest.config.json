@@ -11,6 +11,11 @@
       "statements": 70
     }
   },
+  "testMatch": [
+    "**/tests/**/*.test.ts",
+    "**/tests/**/*.test.js",
+    "**/__tests__/**/*.test.ts"
+  ],
   "moduleNameMapper": {
     "^(\\.{1,2}/.*)\\.js$": "$1"
   },
