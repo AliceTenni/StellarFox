@@ -87,6 +87,150 @@ export const probability_snapshots = pgTable(
   }),
 );
 
+// ── Capacity Planning Tables ──────────────────────────────────────────────────
+
+/** Resource metrics - current metric readings */
+export const resourceMetrics = pgTable(
+  'resource_metrics',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
+    resourceType: text('resource_type').notNull(), // cpu, memory, disk, connections, etc.
+    metricName: text('metric_name').notNull(), // specific metric name
+    value: numeric('value').notNull(),
+    unit: text('unit').notNull(), // percentage, bytes, count, etc.
+    hostId: text('host_id'), // server/container identifier
+    serviceName: text('service_name'), // service generating metric
+    metadata: jsonb('metadata'), // additional context
+  },
+  (table) => ({
+    timestamp_idx: index('idx_resource_metrics_timestamp').on(table.timestamp),
+    type_name_idx: index('idx_resource_metrics_type_name').on(table.resourceType, table.metricName),
+  }),
+);
+
+/** Capacity trends - aggregated metrics over time periods */
+export const capacityTrends = pgTable(
+  'capacity_trends',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    resourceType: text('resource_type').notNull(),
+    metricName: text('metric_name').notNull(),
+    periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
+    periodEnd: timestamp('period_end', { withTimezone: true }).notNull(),
+    periodType: text('period_type').notNull(), // 'hourly', 'daily', 'weekly', 'monthly'
+    avgValue: numeric('avg_value').notNull(),
+    minValue: numeric('min_value').notNull(),
+    maxValue: numeric('max_value').notNull(),
+    p95Value: numeric('p95_value'),
+    p99Value: numeric('p99_value'),
+    sampleCount: integer('sample_count').notNull().default(1),
+    trendDirection: text('trend_direction'), // 'increasing', 'decreasing', 'stable'
+    trendRate: numeric('trend_rate'), // rate of change per day
+    volatility: numeric('volatility'), // standard deviation as percent of mean
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    resource_period_idx: index('idx_capacity_trends_resource_period').on(
+      table.resourceType,
+      table.metricName,
+      table.periodType,
+      table.periodStart,
+    ),
+  }),
+);
+
+/** Capacity forecasts - predicted future values */
+export const capacityForecasts = pgTable(
+  'capacity_forecasts',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    resourceType: text('resource_type').notNull(),
+    metricName: text('metric_name').notNull(),
+    forecastDate: date('forecast_date').notNull(),
+    forecastTimestamp: timestamp('forecast_timestamp', { withTimezone: true }).notNull().defaultNow(),
+    forecastMethod: text('forecast_method').notNull(), // 'linear_regression', 'exponential_smoothing', 'arima'
+    forecastValue: numeric('forecast_value').notNull(),
+    confidenceIntervalLower: numeric('confidence_interval_lower'),
+    confidenceIntervalUpper: numeric('confidence_interval_upper'),
+    confidenceLevel: numeric('confidence_level'), // 0-1
+    modelRSquared: numeric('model_r_squared'), // R² fit value
+    mape: numeric('mape'), // Mean Absolute Percentage Error
+    actualValue: numeric('actual_value'), // actual value when known
+    predictionError: numeric('prediction_error'), // error when actual is known
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    resource_date_idx: index('idx_capacity_forecasts_resource_date').on(
+      table.resourceType,
+      table.metricName,
+      table.forecastDate,
+    ),
+  }),
+);
+
+/** Capacity thresholds - alert thresholds */
+export const capacityThresholds = pgTable(
+  'capacity_thresholds',
+  {
+    id: serial('id').primaryKey(),
+    resourceType: text('resource_type').notNull(),
+    metricName: text('metric_name').notNull(),
+    warningThreshold: numeric('warning_threshold').notNull(),
+    criticalThreshold: numeric('critical_threshold').notNull(),
+    forecastWarningDays: integer('forecast_warning_days').notNull().default(7),
+    enabled: boolean('enabled').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+);
+
+/** Capacity alerts - alert history */
+export const capacityAlerts = pgTable(
+  'capacity_alerts',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    thresholdId: integer('threshold_id'),
+    resourceType: text('resource_type').notNull(),
+    metricName: text('metric_name').notNull(),
+    alertLevel: text('alert_level').notNull(), // 'warning', 'critical'
+    currentValue: numeric('current_value').notNull(),
+    thresholdValue: numeric('threshold_value').notNull(),
+    alertType: text('alert_type'), // 'current_value', 'forecast_based'
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    resolved_idx: index('idx_capacity_alerts_resolved').on(table.resolvedAt),
+  }),
+);
+
+/** Capacity recommendations - actionable recommendations */
+export const capacityRecommendations = pgTable(
+  'capacity_recommendations',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    resourceType: text('resource_type').notNull(),
+    metricName: text('metric_name').notNull(),
+    recommendation: text('recommendation').notNull(),
+    urgency: text('urgency').notNull(), // 'low', 'medium', 'high'
+    recommendedAction: text('recommended_action'),
+    estimatedImpact: text('estimated_impact'),
+    implementationEffort: text('implementation_effort'), // 'easy', 'moderate', 'difficult'
+    forecastDate: date('forecast_date'),
+    implemented: boolean('implemented').default(false),
+    implementedAt: timestamp('implemented_at', { withTimezone: true }),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    urgency_idx: index('idx_capacity_recommendations_urgency').on(table.urgency),
+  }),
+);
+
 export const bets = pgTable(
   'bets',
   {
@@ -438,6 +582,405 @@ export const user_notifications = pgTable(
   }),
 );
 
+// ============================================================================
+// Security Features: MFA, Secrets, ABAC, Scanning
+// ============================================================================
+
+// MFA Credentials table
+export const mfaCredentials = pgTable(
+  'mfa_credentials',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(), // 'totp' | 'sms' | 'email' | 'biometric'
+    credential: text('credential').notNull(), // encrypted secret
+    backupCodes: text('backup_codes'), // encrypted JSON array
+    isEnabled: boolean('is_enabled').default(false),
+    isVerified: boolean('is_verified').default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    metadata: jsonb('metadata'),
+  },
+  (table) => ({
+    userId_idx: index('mfa_credentials_user_id_idx').on(table.userId),
+    type_idx: index('mfa_credentials_type_idx').on(table.type),
+  }),
+);
+
+// MFA Audit Log table
+export const mfaAuditLog = pgTable(
+  'mfa_audit_log',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    action: text('action').notNull(), // 'mfa_registered', 'mfa_enabled', 'mfa_disabled', etc.
+    mfaType: text('mfa_type'),
+    success: boolean('success').default(true),
+    timestamp: timestamp('timestamp', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    userId_idx: index('mfa_audit_log_user_id_idx').on(table.userId),
+    action_idx: index('mfa_audit_log_action_idx').on(table.action),
+    timestamp_idx: index('mfa_audit_log_timestamp_idx').on(table.timestamp),
+  }),
+);
+
+// Encrypted Secrets table
+export const encryptedSecrets = pgTable(
+  'encrypted_secrets',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull().unique(),
+    type: text('type').notNull(), // 'api_key' | 'database_url' | 'token' | 'custom'
+    encryptedValue: text('encrypted_value').notNull(),
+    iv: text('iv').notNull(), // initialization vector
+    authTag: text('auth_tag').notNull(), // authentication tag for GCM
+    isRotated: boolean('is_rotated').default(false),
+    rotationInterval: integer('rotation_interval'), // days
+    nextRotationAt: timestamp('next_rotation_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    createdBy: text('created_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    deletedBy: text('deleted_by'),
+  },
+  (table) => ({
+    name_idx: uniqueIndex('encrypted_secrets_name_idx').on(table.name),
+    type_idx: index('encrypted_secrets_type_idx').on(table.type),
+    nextRotationAt_idx: index('encrypted_secrets_next_rotation_idx').on(table.nextRotationAt),
+  }),
+);
+
+// Secret Rotation Log table
+export const secretRotationLog = pgTable(
+  'secret_rotation_log',
+  {
+    id: text('id').primaryKey(),
+    secretId: text('secret_id').notNull().references(() => encryptedSecrets.id, { onDelete: 'cascade' }),
+    oldEncryptedValue: text('old_encrypted_value').notNull(),
+    newEncryptedValue: text('new_encrypted_value').notNull(),
+    oldIv: text('old_iv').notNull(),
+    newIv: text('new_iv').notNull(),
+    oldAuthTag: text('old_auth_tag').notNull(),
+    newAuthTag: text('new_auth_tag').notNull(),
+    rotatedAt: timestamp('rotated_at', { withTimezone: true }).defaultNow(),
+    rotatedBy: text('rotated_by').notNull(),
+    reason: text('reason').default('scheduled'),
+    status: text('status').notNull(), // 'pending' | 'completed' | 'failed'
+  },
+  (table) => ({
+    secretId_idx: index('secret_rotation_log_secret_id_idx').on(table.secretId),
+    rotatedAt_idx: index('secret_rotation_log_rotated_at_idx').on(table.rotatedAt),
+  }),
+);
+
+// Secret Audit Log table
+export const secretAuditLog = pgTable(
+  'secret_audit_log',
+  {
+    id: text('id').primaryKey(),
+    secretId: text('secret_id').notNull(),
+    action: text('action').notNull(), // 'secret_created', 'secret_accessed', 'secret_rotated', etc.
+    userId: text('user_id').notNull(),
+    success: boolean('success').default(true),
+    details: text('details'),
+    timestamp: timestamp('timestamp', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    secretId_idx: index('secret_audit_log_secret_id_idx').on(table.secretId),
+    userId_idx: index('secret_audit_log_user_id_idx').on(table.userId),
+    action_idx: index('secret_audit_log_action_idx').on(table.action),
+    timestamp_idx: index('secret_audit_log_timestamp_idx').on(table.timestamp),
+  }),
+);
+
+// ABAC Policies table
+export const abacPolicies = pgTable(
+  'abac_policies',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    description: text('description'),
+    effect: text('effect').notNull(), // 'allow' | 'deny'
+    subjectPolicy: text('subject_policy').notNull(), // JSON-serialized condition
+    actionPolicy: text('action_policy').notNull(), // JSON-serialized condition
+    resourcePolicy: text('resource_policy').notNull(), // JSON-serialized condition
+    conditionPolicy: text('condition_policy'), // JSON-serialized condition (optional)
+    priority: integer('priority').default(0),
+    createdBy: text('created_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+    isEnabled: boolean('is_enabled').default(true),
+  },
+  (table) => ({
+    name_idx: index('abac_policies_name_idx').on(table.name),
+    effect_idx: index('abac_policies_effect_idx').on(table.effect),
+    priority_idx: index('abac_policies_priority_idx').on(table.priority),
+  }),
+);
+
+// ABAC Audit Log table
+export const abacAuditLog = pgTable(
+  'abac_audit_log',
+  {
+    id: text('id').primaryKey(),
+    action: text('action').notNull(), // 'access_granted', 'access_denied', 'policy_created', etc.
+    resourceId: text('resource_id').notNull(),
+    userId: text('user_id').notNull(),
+    success: boolean('success').default(true),
+    timestamp: timestamp('timestamp', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    resourceId_idx: index('abac_audit_log_resource_id_idx').on(table.resourceId),
+    userId_idx: index('abac_audit_log_user_id_idx').on(table.userId),
+    action_idx: index('abac_audit_log_action_idx').on(table.action),
+    timestamp_idx: index('abac_audit_log_timestamp_idx').on(table.timestamp),
+  }),
+);
+
+// Security Scan Results table
+export const securityScanResults = pgTable(
+  'security_scan_results',
+  {
+    id: text('id').primaryKey(),
+    type: text('type').notNull(), // 'sast' | 'dast' | 'dependency' | 'container'
+    status: text('status').notNull(), // 'pending' | 'running' | 'completed' | 'failed'
+    startedAt: timestamp('started_at', { withTimezone: true }).defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    resultsPath: text('results_path'),
+    totalIssues: integer('total_issues').default(0),
+    criticalIssues: integer('critical_issues').default(0),
+    highIssues: integer('high_issues').default(0),
+    mediumIssues: integer('medium_issues').default(0),
+    lowIssues: integer('low_issues').default(0),
+    logs: text('logs'),
+  },
+  (table) => ({
+    type_idx: index('security_scan_results_type_idx').on(table.type),
+    status_idx: index('security_scan_results_status_idx').on(table.status),
+    startedAt_idx: index('security_scan_results_started_at_idx').on(table.startedAt),
+  }),
+);
+
+// Security Vulnerabilities table
+export const securityVulnerabilities = pgTable(
+  'security_vulnerabilities',
+  {
+    id: text('id').primaryKey(),
+    scanId: text('scan_id').notNull().references(() => securityScanResults.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(), // 'CVE', 'secret_leak', 'code_injection', etc.
+    severity: text('severity').notNull(), // 'critical' | 'high' | 'medium' | 'low' | 'info'
+    title: text('title').notNull(),
+    description: text('description'),
+    affectedComponent: text('affected_component').notNull(),
+    affectedVersion: text('affected_version'),
+    remediationAdvice: text('remediation_advice'),
+    cvssScore: numeric('cvss_score', { precision: 4, scale: 1 }),
+    cweId: text('cwe_id'),
+    detectedAt: timestamp('detected_at', { withTimezone: true }).defaultNow(),
+    status: text('status').notNull(), // 'open' | 'acknowledged' | 'remediated' | 'false_positive'
+  },
+  (table) => ({
+    scanId_idx: index('security_vulnerabilities_scan_id_idx').on(table.scanId),
+    severity_idx: index('security_vulnerabilities_severity_idx').on(table.severity),
+    status_idx: index('security_vulnerabilities_status_idx').on(table.status),
+// Analytics tables
+export const analyticsUserSessions = pgTable(
+  'user_sessions',
+  {
+    id: serial('id').primaryKey(),
+    user_id: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    session_id: text('session_id').notNull().unique(),
+    device_info: jsonb('device_info'),
+    browser: text('browser'),
+    os: text('os'),
+    ip_address: text('ip_address'),
+    started_at: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    ended_at: timestamp('ended_at', { withTimezone: true }),
+    duration_seconds: integer('duration_seconds'),
+    page_views: integer('page_views').default(0),
+    events_count: integer('events_count').default(0),
+    created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    user_id_idx: index('user_sessions_user_id_idx').on(table.user_id),
+    session_id_idx: index('user_sessions_session_id_idx').on(table.session_id),
+    started_at_idx: index('user_sessions_started_at_idx').on(table.started_at),
+  }),
+);
+
+export const analyticsUserEvents = pgTable(
+  'user_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    user_id: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    session_id: text('session_id').notNull().references(() => analyticsUserSessions.session_id, { onDelete: 'cascade' }),
+    event_type: text('event_type').notNull(),
+    event_name: text('event_name').notNull(),
+    page_url: text('page_url'),
+    referrer_url: text('referrer_url'),
+    event_data: jsonb('event_data'),
+    duration_ms: integer('duration_ms'),
+    timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
+    created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    user_id_idx: index('user_events_user_id_idx').on(table.user_id),
+    session_id_idx: index('user_events_session_id_idx').on(table.session_id),
+    event_type_idx: index('user_events_event_type_idx').on(table.event_type),
+    event_name_idx: index('user_events_event_name_idx').on(table.event_name),
+    timestamp_idx: index('user_events_timestamp_idx').on(table.timestamp),
+  }),
+);
+
+export const pageAnalytics = pgTable(
+  'page_analytics',
+  {
+    id: serial('id').primaryKey(),
+    page_url: text('page_url').notNull(),
+    page_name: text('page_name').notNull(),
+    date: date('date').notNull(),
+    unique_visitors: integer('unique_visitors').default(0),
+    page_views: integer('page_views').default(0),
+    avg_time_on_page_seconds: numeric('avg_time_on_page_seconds').default('0'),
+    bounce_rate: numeric('bounce_rate', { precision: 5, scale: 2 }).default('0'),
+    scroll_depth_avg: numeric('scroll_depth_avg', { precision: 5, scale: 2 }).default('0'),
+    ctr: numeric('ctr', { precision: 5, scale: 2 }).default('0'),
+    conversion_rate: numeric('conversion_rate', { precision: 5, scale: 2 }).default('0'),
+    created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    page_url_date_idx: index('page_analytics_page_url_date_idx').on(table.page_url, table.date),
+    date_idx: index('page_analytics_date_idx').on(table.date),
+  }),
+);
+
+export const heatmapData = pgTable(
+  'heatmap_data',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    user_id: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    session_id: text('session_id').notNull().references(() => analyticsUserSessions.session_id, { onDelete: 'cascade' }),
+    page_url: text('page_url').notNull(),
+    interaction_type: text('interaction_type').notNull(),
+    x_coordinate: integer('x_coordinate').notNull(),
+    y_coordinate: integer('y_coordinate').notNull(),
+    element_id: text('element_id'),
+    element_class: text('element_class'),
+    element_text: text('element_text'),
+    viewport_width: integer('viewport_width'),
+    viewport_height: integer('viewport_height'),
+    timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
+    created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    user_id_idx: index('heatmap_data_user_id_idx').on(table.user_id),
+    session_id_idx: index('heatmap_data_session_id_idx').on(table.session_id),
+    page_url_idx: index('heatmap_data_page_url_idx').on(table.page_url),
+    interaction_type_idx: index('heatmap_data_interaction_type_idx').on(table.interaction_type),
+  }),
+);
+
+export const sessionRecordings = pgTable(
+  'session_recordings',
+  {
+    id: serial('id').primaryKey(),
+    user_id: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    session_id: text('session_id').notNull().references(() => analyticsUserSessions.session_id, { onDelete: 'cascade' }),
+    recording_url: text('recording_url'),
+    storage_key: text('storage_key'),
+    duration_seconds: integer('duration_seconds'),
+    event_count: integer('event_count').default(0),
+    file_size_bytes: bigserial('file_size_bytes'),
+    status: text('status').default('processing'),
+    started_at: timestamp('started_at', { withTimezone: true }).notNull(),
+    ended_at: timestamp('ended_at', { withTimezone: true }),
+    created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    user_id_idx: index('session_recordings_user_id_idx').on(table.user_id),
+    session_id_idx: index('session_recordings_session_id_idx').on(table.session_id),
+    status_idx: index('session_recordings_status_idx').on(table.status),
+  }),
+);
+
+export const heatmapAggregates = pgTable(
+  'heatmap_aggregates',
+  {
+    id: serial('id').primaryKey(),
+    page_url: text('page_url').notNull(),
+    date: date('date').notNull(),
+    interaction_type: text('interaction_type').notNull(),
+    heatmap_json: jsonb('heatmap_json').notNull(),
+    sample_count: integer('sample_count').default(0),
+    grid_size: integer('grid_size').default(50),
+    created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    page_url_date_interaction_idx: index('heatmap_aggregates_page_url_date_interaction_idx').on(
+      table.page_url,
+      table.date,
+      table.interaction_type,
+    ),
+    page_url_interaction_idx: index('heatmap_aggregates_page_url_interaction_idx').on(
+      table.page_url,
+      table.interaction_type,
+    ),
+  }),
+);
+
+export const userAnalyticsSummary = pgTable(
+  'user_analytics_summary',
+  {
+    id: serial('id').primaryKey(),
+    user_id: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    date: date('date').notNull(),
+    sessions_count: integer('sessions_count').default(0),
+    page_views: integer('page_views').default(0),
+    events_count: integer('events_count').default(0),
+    total_time_seconds: integer('total_time_seconds').default(0),
+    unique_pages_visited: integer('unique_pages_visited').default(0),
+    conversions: integer('conversions').default(0),
+    conversion_value: numeric('conversion_value', { precision: 15, scale: 2 }).default('0'),
+    goals_completed: jsonb('goals_completed'),
+    created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    user_id_date_idx: index('user_analytics_summary_user_id_date_idx').on(table.user_id, table.date),
+    date_idx: index('user_analytics_summary_date_idx').on(table.date),
+  }),
+);
+
+export const analyticsCustomEvents = pgTable(
+  'analytics_custom_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    user_id: text('user_id'),
+    event_category: text('event_category').notNull(),
+    event_label: text('event_label').notNull(),
+    event_value: integer('event_value'),
+    event_metadata: jsonb('event_metadata'),
+    page_url: text('page_url'),
+    session_id: text('session_id'),
+    timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
+    created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    user_id_idx: index('analytics_custom_events_user_id_idx').on(table.user_id),
+    event_category_idx: index('analytics_custom_events_event_category_idx').on(table.event_category),
+    event_category_timestamp_idx: index('analytics_custom_events_event_category_timestamp_idx').on(
+      table.event_category,
+      table.timestamp,
+    ),
+    timestamp_idx: index('analytics_custom_events_timestamp_idx').on(table.timestamp),
+  }),
+);
+
 export type Market = typeof markets.$inferSelect;
 export type NewMarket = typeof markets.$inferInsert;
 export type Bet = typeof bets.$inferSelect;
@@ -448,6 +991,23 @@ export type NotificationJob = typeof notification_jobs.$inferSelect;
 export type Dispute = typeof disputes.$inferSelect;
 export type NewDispute = typeof disputes.$inferInsert;
 export type User = typeof users.$inferSelect;
+export type MFACredential = typeof mfaCredentials.$inferSelect;
+export type EncryptedSecret = typeof encryptedSecrets.$inferSelect;
+export type ABACPolicy = typeof abacPolicies.$inferSelect;
+export type SecurityScanResult = typeof securityScanResults.$inferSelect;
+export type SecurityVulnerability = typeof securityVulnerabilities.$inferSelect;
+export type AnalyticsUserSession = typeof analyticsUserSessions.$inferSelect;
+export type NewAnalyticsUserSession = typeof analyticsUserSessions.$inferInsert;
+export type AnalyticsUserEvent = typeof analyticsUserEvents.$inferSelect;
+export type NewAnalyticsUserEvent = typeof analyticsUserEvents.$inferInsert;
+export type PageAnalytics = typeof pageAnalytics.$inferSelect;
+export type HeatmapData = typeof heatmapData.$inferSelect;
+export type NewHeatmapData = typeof heatmapData.$inferInsert;
+export type SessionRecording = typeof sessionRecordings.$inferSelect;
+export type HeatmapAggregate = typeof heatmapAggregates.$inferSelect;
+export type UserAnalyticsSummary = typeof userAnalyticsSummary.$inferSelect;
+export type AnalyticsCustomEvent = typeof analyticsCustomEvents.$inferSelect;
+export type NewAnalyticsCustomEvent = typeof analyticsCustomEvents.$inferInsert;
 export type NewUser = typeof users.$inferInsert;
 export type UserSession = typeof user_sessions.$inferSelect;
 export type PasswordResetToken = typeof password_reset_tokens.$inferSelect;
