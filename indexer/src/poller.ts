@@ -1,9 +1,27 @@
 import { rpc, scValToNative } from '@stellar/stellar-sdk';
 import { getCursor, saveCursor, getLastKnownLedger, upsertInvoice } from './db';
-import { updateLastLedger } from './health';
+import { updateLastLedger, setDatabaseHealth, setRpcHealth } from './health';
 import { detectLedgerAnomaly, computeResyncStartLedger } from './ledgerContinuity';
 import { calculateBackoff, loadBackoffConfigFromEnv } from './backoff';
 import { broadcast } from './ws';
+import { 
+  recordEventSuccess, 
+  recordEventFailure, 
+  recordBatchSuccess, 
+  recordBatchFailure,
+  incrementQueueDepth,
+  decrementQueueDepth,
+  setQueueDepth,
+} from './metrics';
+import {
+  initializeCheckpoints,
+  createCheckpoint,
+  shouldCreateCheckpoint,
+  getRecoveryInfo,
+} from './checkpointRecovery';
+import {
+  filterAndSampleEvents,
+} from './eventFiltering';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -90,6 +108,21 @@ function log(level: 'info' | 'warn' | 'error', message: string, context?: Record
 }
 
 export async function pollEvents() {
+  log('info', 'Initializing indexer poller', { contractId: CONTRACT_ID, rpcUrl: RPC_URL });
+  
+  // Initialize checkpoints for recovery
+  try {
+    await initializeCheckpoints();
+    const recoveryInfo = getRecoveryInfo();
+    if (recoveryInfo.hasCheckpoint) {
+      log('info', 'Checkpoint recovery enabled', { recoveryInfo });
+    }
+  } catch (err) {
+    log('warn', 'Failed to initialize checkpoints', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   log('info', 'Indexer poller started', { contractId: CONTRACT_ID, rpcUrl: RPC_URL });
   pollerHealth.isRunning = true;
 
@@ -124,6 +157,7 @@ export async function pollEvents() {
   // Recursive async loop with exponential backoff
   async function pollLoop(): Promise<void> {
     try {
+      const pollStartTime = Date.now();
       // A pending resync (set after a re-org) always takes priority over the
       // persisted cursor, since the cursor may point past ledgers that no
       // longer exist on the canonical chain.
@@ -191,52 +225,81 @@ export async function pollEvents() {
 
         // Process all events on this page
         if (response.events && response.events.length > 0) {
-          for (const event of response.events) {
-            const eventLedger = event.ledger;
+          // Update queue depth
+          setQueueDepth(response.events.length);
 
-            if (eventLedger) {
-              const anomaly = detectLedgerAnomaly(eventLedger, lastProcessedLedger);
+          // Apply filtering and sampling
+          const filteredAndSampledEvents = filterAndSampleEvents(response.events, response.events.length);
+          
+          // Calculate how many events were filtered/sampled out
+          const filteredOutCount = response.events.length - filteredAndSampledEvents.length;
 
-              if (anomaly.type === 'reorg') {
-                pollerHealth.reorgsDetected++;
-                pollerHealth.lastReorgAt = new Date().toISOString();
-                log('warn', 'Ledger re-org detected; discarding cursor and re-syncing from a safe ledger', {
-                  lastProcessedLedger: anomaly.fromLedger,
-                  incomingEventLedger: anomaly.toLedger,
-                });
-                broadcast({
-                  type: 'poller.reorg_detected',
-                  timestamp: new Date().toISOString(),
-                  data: { lastProcessedLedger: anomaly.fromLedger, incomingEventLedger: anomaly.toLedger },
-                });
-                // Don't trust or process events from a superseded ledger view.
-                // Rewind and let the next poll iteration re-fetch canonical events.
-                pendingResyncLedger = computeResyncStartLedger(anomaly.fromLedger);
-                reorgTriggered = true;
-                break;
+          for (const event of filteredAndSampledEvents) {
+            const eventStartTime = Date.now();
+            try {
+              const eventLedger = event.ledger;
+
+              if (eventLedger) {
+                const anomaly = detectLedgerAnomaly(eventLedger, lastProcessedLedger);
+
+                if (anomaly.type === 'reorg') {
+                  pollerHealth.reorgsDetected++;
+                  pollerHealth.lastReorgAt = new Date().toISOString();
+                  log('warn', 'Ledger re-org detected; discarding cursor and re-syncing from a safe ledger', {
+                    lastProcessedLedger: anomaly.fromLedger,
+                    incomingEventLedger: anomaly.toLedger,
+                  });
+                  broadcast({
+                    type: 'poller.reorg_detected',
+                    timestamp: new Date().toISOString(),
+                    data: { lastProcessedLedger: anomaly.fromLedger, incomingEventLedger: anomaly.toLedger },
+                  });
+                  // Don't trust or process events from a superseded ledger view.
+                  // Rewind and let the next poll iteration re-fetch canonical events.
+                  pendingResyncLedger = computeResyncStartLedger(anomaly.fromLedger);
+                  reorgTriggered = true;
+                  recordEventFailure(Date.now() - eventStartTime);
+                  break;
+                }
+
+                if (anomaly.type === 'gap') {
+                  pollerHealth.ledgerGapsDetected++;
+                  pollerHealth.lastLedgerGapAt = new Date().toISOString();
+                  log('warn', 'Missing ledger sequence(s) detected between polls', {
+                    fromLedger: anomaly.fromLedger,
+                    toLedger: anomaly.toLedger,
+                    missingCount: anomaly.missingCount,
+                  });
+                }
               }
 
-              if (anomaly.type === 'gap') {
-                pollerHealth.ledgerGapsDetected++;
-                pollerHealth.lastLedgerGapAt = new Date().toISOString();
-                log('warn', 'Missing ledger sequence(s) detected between polls', {
-                  fromLedger: anomaly.fromLedger,
-                  toLedger: anomaly.toLedger,
-                  missingCount: anomaly.missingCount,
-                });
+              processEvent(event);
+              recordEventSuccess(Date.now() - eventStartTime);
+
+              if (eventLedger) {
+                lastProcessedLedger = eventLedger;
+                updateLastLedger(eventLedger);
               }
-            }
-
-            processEvent(event);
-
-            if (eventLedger) {
-              lastProcessedLedger = eventLedger;
-              updateLastLedger(eventLedger);
+            } catch (err) {
+              recordEventFailure(Date.now() - eventStartTime);
+              log('error', 'Failed to process event', {
+                eventId: event.id,
+                error: err instanceof Error ? err.message : String(err),
+              });
             }
           }
 
           if (!reorgTriggered) {
-            totalEventsProcessed += response.events.length;
+            totalEventsProcessed += filteredAndSampledEvents.length;
+          }
+
+          // Record filtering metrics
+          if (filteredOutCount > 0) {
+            log('warn', 'Events filtered/sampled out', {
+              filteredOutCount,
+              keptCount: filteredAndSampledEvents.length,
+              totalCount: response.events.length,
+            });
           }
         }
 
@@ -260,9 +323,33 @@ export async function pollEvents() {
           const oldCursor = cursor;
           cursor = response.cursor || pagingToken || '';
           await saveCursor(cursor, lastProcessedLedger ?? undefined);
+          
+          // Create checkpoint if threshold reached
+          if (shouldCreateCheckpoint(totalEventsProcessed)) {
+            try {
+              await createCheckpoint(
+                lastProcessedLedger ?? 0,
+                cursor,
+                0, // batchId not used in current flow
+                totalEventsProcessed,
+              );
+              log('info', 'Checkpoint created', {
+                ledger: lastProcessedLedger,
+                cursor: cursor.substring(0, 20) + '...',
+                eventsInBatch: totalEventsProcessed,
+              });
+            } catch (err) {
+              log('warn', 'Failed to create checkpoint', {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
+
           pollerHealth.eventsProcessed += totalEventsProcessed;
+          decrementQueueDepth(totalEventsProcessed);
 
           if (totalEventsProcessed > 0) {
+            recordBatchSuccess(Date.now() - pollStartTime);
             log('info', 'Events polled and processed (with pagination)', {
               eventCount: totalEventsProcessed,
               oldCursor,
@@ -284,6 +371,9 @@ export async function pollEvents() {
       pollerHealth.lastErrorAt = null;
       pollerHealth.lastSuccessfulPollAt = new Date().toISOString();
 
+      // Mark dependencies as healthy
+      setRpcHealth(true);
+      
       // Schedule next poll immediately (no fixed interval, just loop)
       await new Promise(resolve => setImmediate(resolve));
       await pollLoop();
@@ -292,6 +382,10 @@ export async function pollEvents() {
       pollerHealth.consecutiveFailures++;
       pollerHealth.lastError = err instanceof Error ? err.message : String(err);
       pollerHealth.lastErrorAt = new Date().toISOString();
+
+      // Mark RPC as unhealthy on error
+      setRpcHealth(false, pollerHealth.lastError);
+      recordBatchFailure();
 
       const backoffMs = calculateBackoff(pollerHealth.consecutiveFailures, BACKOFF_CONFIG);
 
