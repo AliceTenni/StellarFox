@@ -47,10 +47,24 @@ terraform apply -var-file=terraform.tfvars
 terraform destroy -var-file=terraform.tfvars
 ```
 
-Copy `terraform.tfvars.example` to `terraform.tfvars` and fill in environment-specific
-values before running `plan` or `apply`. The `terraform.tfvars` file is git-ignored.
+## Test Automation
 
-### Reproducibility
+Run commands from the repository root. Install the Node dependencies in the
+relevant project first (`npm ci --prefix backend`, `frontend`, and/or `indexer`).
+
+| Command | What it runs |
+|---|---|
+| `npm test` or `npm run test:unit` | Backend and frontend Jest suites, indexer tests, and Rust contract tests |
+| `npm run test:integration` | Backend integration tests (requires PostgreSQL and Redis) |
+| `npm run test:e2e` | Backend E2E tests (requires PostgreSQL and Redis) and frontend Playwright tests |
+| `npm run test:coverage` | Backend, frontend, and indexer coverage reports with 70% global thresholds |
+| `npm run test:all` | All unit, integration, and E2E suites |
+
+Frontend Playwright tests require a built frontend server on port 3000; the
+frontend CI job builds and starts it automatically. Contract tests use Cargo
+and are run by the contract CI workflow.
+
+### Development Mode (Local)
 
 Because every resource is declared in code, environments can be recreated from scratch
 by running `terraform apply` against a fresh state. Remote state is configured so that

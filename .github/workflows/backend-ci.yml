@@ -4,11 +4,11 @@ on:
   push:
     paths:
       - 'backend/**'
-      - 'k8s/**'
+      - 'package.json'
   pull_request:
     paths:
       - 'backend/**'
-      - 'k8s/**'
+      - 'package.json'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -85,10 +85,10 @@ jobs:
             const config = require('./drizzle.config').default;
             const schemaPath = path.resolve(__dirname, config.schema);
             if (!fs.existsSync(schemaPath)) {
-              console.error('❌ Schema path does not exist:', schemaPath);
+              console.error('Schema path does not exist:', schemaPath);
               process.exit(1);
             } else {
-              console.log('✅ Schema path is valid:', schemaPath);
+              console.log('Schema path is valid:', schemaPath);
             }
           "
 
@@ -114,7 +114,22 @@ jobs:
 
       - name: Test
         working-directory: backend
-        run: npm test
+        run: npm run test:coverage
+        env:
+          DATABASE_URL: postgresql://bankerchanger:bankerchanger@localhost:5432/bankerchanger
+          REDIS_URL: redis://localhost:6379
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage/
+          retention-days: 7
+
+      - name: Integration tests
+        working-directory: backend
+        run: npm run test:integration
         env:
           DATABASE_URL: postgresql://bankerchanger:bankerchanger@localhost:5432/bankerchanger
           REDIS_URL: redis://localhost:6379
