@@ -41,7 +41,7 @@ module.exports = {
       testEnvironment: 'node',
       roots: ['<rootDir>/src/__tests__', '<rootDir>/src/hooks', '<rootDir>/src/services'],
       testMatch: ['**/__tests__/**/*.test.[jt]s?(x)', '**/*.test.[jt]s?(x)'],
-      testPathIgnorePatterns: ['/node_modules/', 'src/services/__tests__/api\\.test\\.ts'],
+      testPathIgnorePatterns: ['/node_modules/', 'src/services/__tests__/api\\.test\\.ts', 'src/__tests__/offline/'],
       moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
       transform: sharedTransform,
       moduleNameMapper: {
@@ -66,6 +66,22 @@ module.exports = {
       transform: sharedTransform,
       moduleNameMapper: sharedModuleNameMapper,
       testPathIgnorePatterns: ['/node_modules/'],
+      globals: { 'ts-jest': { isolatedModules: true } },
+    },
+    // Offline / IDB tests — require jsdom for IndexedDB + fake-indexeddb shim
+    {
+      displayName: 'offline',
+      testEnvironment: 'jsdom',
+      roots: ['<rootDir>/src/__tests__/offline'],
+      testMatch: ['**/*.test.[jt]s?(x)'],
+      moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
+      transform: sharedTransform,
+      moduleNameMapper: sharedModuleNameMapper,
+      testPathIgnorePatterns: ['/node_modules/'],
+      setupFilesAfterEnv: [
+        '<rootDir>/src/__tests__/setupComponents.ts',
+        '<rootDir>/src/__tests__/offline/setup.ts',
+      ],
       globals: { 'ts-jest': { isolatedModules: true } },
     },
   ],
