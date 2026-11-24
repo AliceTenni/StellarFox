@@ -14,7 +14,8 @@
     "lint:fix": "next lint --fix",
     "format": "prettier --write 'src/**/*.{ts,tsx,json}'",
     "format:check": "prettier --check 'src/**/*.{ts,tsx,json}' '.prettierrc'",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "pwa:icons": "node scripts/generate-pwa-icons.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
