@@ -48,6 +48,8 @@ import claimsRouter from "./routes/bet.routes";
 import { startAutoResolutionCron, startAutoLockCron } from "./cron/autoResolution.cron";
 import { startProbabilitySnapshotCron } from "./cron/probabilitySnapshot.cron";
 import { startCleanupCron } from "./cron/cleanup.cron";
+import { startWebhookRetryCron } from "./cron/webhookRetry.cron";
+import webhooksRouter from "./routes/webhooksGroup9.routes";
 import { initActivityFeed, getActivityFeed, tryGetActivityFeed } from "./websocket/realtime";
 import { engagementService } from "./services/engagement.service";
 import { register } from "./services/metrics.service";
@@ -159,6 +161,7 @@ app.use(
 app.use("/auth", authRouter);
 app.use("/api/markets", marketRouter);
 app.use("/api/v2/markets", marketGroup3Router);
+app.use("/api/v2/webhooks", webhooksRouter);
 app.use("/api/governance", governanceRouter);
 app.use("/api/engagement", engagementRouter);
 app.use("/api/feedback", feedbackRouter);
@@ -249,6 +252,7 @@ const server = app.listen(PORT, () => {
   startAutoLockCron();
   startProbabilitySnapshotCron();
   startCleanupCron();
+  startWebhookRetryCron();
 });
 
 // Startup health check — catch misconfigured env vars or failed connections early
